@@ -12,6 +12,14 @@ export function createEmptyFoundations(): Record<CardSuit, PlayingCardModel[]> {
   }
 }
 
+export function createEmptyFreeCellState(): FreeCellState {
+  return {
+    cascades: Array.from({ length: 8 }, () => []),
+    cells: [null, null, null, null],
+    foundations: createEmptyFoundations(),
+  }
+}
+
 export function dealFreeCellCards(cards: readonly PlayingCardModel[]): PlayingCardModel[][] {
   return Array.from({ length: 8 }, (_, cascadeIndex) => {
     const cardsInCascade = cascadeIndex < 4 ? 7 : 6

@@ -6,16 +6,17 @@ import {
   type CardSuit,
   type PlayingCardModel,
 } from '@cards'
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import kingAsset from '../../King.svg'
 import {
   applyMove,
+  cloneFreeCellState,
+  createEmptyFreeCellState,
   createInitialFreeCellState,
   foundationOrder,
   getMovableCards,
   isGameWon,
   moveCardToFoundationIfPossible,
-  validateMove,
   type FreeCellSource,
   type FreeCellState,
   type FreeCellTarget,
@@ -25,6 +26,7 @@ const cascadeCardOffset = 28
 const cardFrameHeight = 156
 const slotWidthClass = 'w-24 sm:w-28'
 const cardShapeClass = 'aspect-[179/250] rounded-[0.55rem]'
+const dealStepDelayMs = 22
 
 const suitMarks: Record<CardSuit, string> = {
   clubs: '♣',
@@ -73,14 +75,12 @@ function parseZoneId(zoneId: string): FreeCellTarget | null {
 
 function CardWell({
   zoneId,
-  highlighted,
   children,
   className,
   emptyLabel,
   testId,
 }: {
   zoneId: string
-  highlighted: boolean
   children?: React.ReactNode
   className?: string
   emptyLabel?: React.ReactNode
@@ -95,7 +95,6 @@ function CardWell({
       className={joinClassNames(
         slotWidthClass,
         'relative shrink-0',
-        highlighted && 'outline-2 outline-yellow-200 outline-offset-2 outline',
         className,
       )}
     >
@@ -106,7 +105,6 @@ function CardWell({
           className={joinClassNames(
             cardShapeClass,
             'flex w-full items-center justify-center border border-dashed border-emerald-100/40 px-2 text-center text-xs font-medium uppercase tracking-wide text-emerald-50/60',
-            highlighted && 'border-yellow-100 text-yellow-50',
           )}
         >
           {emptyLabel}
@@ -121,53 +119,136 @@ interface DragItem {
   cards: PlayingCardModel[]
 }
 
-function App({ initialState }: { initialState?: FreeCellState }) {
-  const [gameState, setGameState] = useState<FreeCellState>(() => initialState ?? createInitialFreeCellState())
+interface AppProps {
+  initialState?: FreeCellState
+  disableDealAnimation?: boolean
+}
+
+interface DealStep {
+  cascadeIndex: number
+  card: PlayingCardModel
+}
+
+function buildDealSteps(state: FreeCellState): DealStep[] {
+  const longestCascade = Math.max(...state.cascades.map((cascade) => cascade.length))
+  const steps: DealStep[] = []
+
+  for (let rowIndex = 0; rowIndex < longestCascade; rowIndex += 1) {
+    for (let cascadeIndex = 0; cascadeIndex < state.cascades.length; cascadeIndex += 1) {
+      const card = state.cascades[cascadeIndex][rowIndex]
+
+      if (card !== undefined) {
+        steps.push({
+          cascadeIndex,
+          card,
+        })
+      }
+    }
+  }
+
+  return steps
+}
+
+function App({ initialState, disableDealAnimation = false }: AppProps) {
+  const initialGameStateRef = useRef<FreeCellState>(initialState ?? createInitialFreeCellState())
+  const shouldAnimateInitialDeal = initialState === undefined && !disableDealAnimation
+  const [gameState, setGameState] = useState<FreeCellState>(initialGameStateRef.current)
+  const [displayState, setDisplayState] = useState<FreeCellState>(() =>
+    shouldAnimateInitialDeal ? createEmptyFreeCellState() : cloneFreeCellState(initialGameStateRef.current),
+  )
   const [undoStack, setUndoStack] = useState<FreeCellState[]>([])
   const [kingMirrored, setKingMirrored] = useState(false)
+  const [isDealAnimating, setIsDealAnimating] = useState(shouldAnimateInitialDeal)
+  const [isNewGameModalOpen, setIsNewGameModalOpen] = useState(false)
   const { dragState, startDrag, cancelDrag } = usePointerDrag<DragItem>()
   const kingRef = useRef<HTMLImageElement | null>(null)
+  const dealTimeoutRef = useRef<number | null>(null)
 
   const hiddenCardIds = useMemo(
     () => new Set((dragState?.item.cards ?? []).map((card) => card.id)),
     [dragState],
   )
 
-  const legalDropZoneIds = useMemo(() => {
-    if (dragState === null) {
-      return new Set<string>()
+  const clearDealTimer = () => {
+    if (dealTimeoutRef.current !== null) {
+      window.clearTimeout(dealTimeoutRef.current)
+      dealTimeoutRef.current = null
+    }
+  }
+
+  const won = !isDealAnimating && isGameWon(gameState)
+
+  const startDealAnimation = (nextState: FreeCellState, options?: { resetUndo?: boolean }) => {
+    clearDealTimer()
+    cancelDrag()
+
+    if (options?.resetUndo) {
+      setUndoStack([])
     }
 
-    const nextZoneIds = new Set<string>()
+    setGameState(nextState)
 
-    for (let cellIndex = 0; cellIndex < gameState.cells.length; cellIndex += 1) {
-      const target: FreeCellTarget = { kind: 'cell', index: cellIndex }
+    if (disableDealAnimation) {
+      setDisplayState(cloneFreeCellState(nextState))
+      setIsDealAnimating(false)
+      return
+    }
 
-      if (validateMove(gameState, dragState.item.source, target).ok) {
-        nextZoneIds.add(getZoneId(target))
+    setDisplayState(createEmptyFreeCellState())
+    setIsDealAnimating(true)
+
+    const dealSteps = buildDealSteps(nextState)
+    let stepIndex = 0
+
+    const runStep = () => {
+      const currentStep = dealSteps[stepIndex]
+
+      setDisplayState((current) => {
+        const next = cloneFreeCellState(current)
+        next.cascades[currentStep.cascadeIndex] = [...next.cascades[currentStep.cascadeIndex], { ...currentStep.card }]
+        return next
+      })
+
+      stepIndex += 1
+
+      if (stepIndex < dealSteps.length) {
+        dealTimeoutRef.current = window.setTimeout(runStep, dealStepDelayMs)
+        return
       }
+
+      dealTimeoutRef.current = window.setTimeout(() => {
+        setDisplayState(cloneFreeCellState(nextState))
+        setIsDealAnimating(false)
+        dealTimeoutRef.current = null
+      }, dealStepDelayMs)
     }
 
-    for (const suit of foundationOrder) {
-      const target: FreeCellTarget = { kind: 'foundation', suit }
-
-      if (validateMove(gameState, dragState.item.source, target).ok) {
-        nextZoneIds.add(getZoneId(target))
-      }
+    if (dealSteps.length === 0) {
+      setDisplayState(cloneFreeCellState(nextState))
+      setIsDealAnimating(false)
+      return
     }
 
-    for (let cascadeIndex = 0; cascadeIndex < gameState.cascades.length; cascadeIndex += 1) {
-      const target: FreeCellTarget = { kind: 'cascade', index: cascadeIndex }
+    runStep()
+  }
 
-      if (validateMove(gameState, dragState.item.source, target).ok) {
-        nextZoneIds.add(getZoneId(target))
-      }
+  useEffect(() => {
+    if (!shouldAnimateInitialDeal) {
+      return undefined
     }
 
-    return nextZoneIds
-  }, [dragState, gameState])
+    startDealAnimation(initialGameStateRef.current)
 
-  const won = isGameWon(gameState)
+    return () => {
+      clearDealTimer()
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearDealTimer()
+    }
+  }, [])
 
   const pushNextState = (nextState: FreeCellState | null) => {
     if (nextState === null) {
@@ -176,15 +257,27 @@ function App({ initialState }: { initialState?: FreeCellState }) {
 
     setUndoStack((stack) => [...stack, gameState])
     setGameState(nextState)
+    setDisplayState(cloneFreeCellState(nextState))
   }
 
-  const handleNewGame = () => {
-    cancelDrag()
-    setUndoStack([])
-    setGameState(createInitialFreeCellState())
+  const handleRequestNewGame = () => {
+    setIsNewGameModalOpen(true)
+  }
+
+  const handleCancelNewGame = () => {
+    setIsNewGameModalOpen(false)
+  }
+
+  const handleConfirmNewGame = () => {
+    setIsNewGameModalOpen(false)
+    startDealAnimation(createInitialFreeCellState(), { resetUndo: true })
   }
 
   const handleUndo = () => {
+    if (isDealAnimating) {
+      return
+    }
+
     cancelDrag()
     setUndoStack((stack) => {
       const previousState = stack.at(-1)
@@ -194,16 +287,21 @@ function App({ initialState }: { initialState?: FreeCellState }) {
       }
 
       setGameState(previousState)
+      setDisplayState(cloneFreeCellState(previousState))
       return stack.slice(0, -1)
     })
   }
 
   const handleAutoFoundation = (source: FreeCellSource) => {
+    if (isDealAnimating) {
+      return
+    }
+
     pushNextState(moveCardToFoundationIfPossible(gameState, source))
   }
 
   const handleStartDrag = (event: ReactPointerEvent<HTMLDivElement>, source: FreeCellSource) => {
-    if (event.button !== 0) {
+    if (event.button !== 0 || isDealAnimating) {
       return
     }
 
@@ -267,13 +365,17 @@ function App({ initialState }: { initialState?: FreeCellState }) {
           </div>
 
           <div className="flex items-center gap-2 text-sm">
-            <button type="button" onClick={handleNewGame} className="border border-emerald-100 px-3 py-1.5 hover:bg-emerald-600">
+            <button
+              type="button"
+              onClick={handleRequestNewGame}
+              className="border border-emerald-100 px-3 py-1.5 hover:bg-emerald-600"
+            >
               New Game
             </button>
             <button
               type="button"
               onClick={handleUndo}
-              disabled={undoStack.length === 0}
+              disabled={undoStack.length === 0 || isDealAnimating}
               className="border border-emerald-100 px-3 py-1.5 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Undo
@@ -285,15 +387,13 @@ function App({ initialState }: { initialState?: FreeCellState }) {
           <div className="mx-auto w-fit min-w-max">
             <div className="flex items-start justify-center gap-3">
               <div className="flex items-start gap-3">
-                {gameState.cells.map((card, cellIndex) => {
+                {displayState.cells.map((card, cellIndex) => {
                   const zoneId = getZoneId({ kind: 'cell', index: cellIndex })
-                  const isEmpty = card === null
 
                   return (
                     <CardWell
                       key={zoneId}
                       zoneId={zoneId}
-                      highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
                       emptyLabel={`Cell ${cellIndex + 1}`}
                       testId={`cell-${cellIndex}`}
                     >
@@ -327,14 +427,12 @@ function App({ initialState }: { initialState?: FreeCellState }) {
               <div className="flex items-start gap-3">
                 {foundationOrder.map((suit) => {
                   const zoneId = getZoneId({ kind: 'foundation', suit })
-                  const topCard = gameState.foundations[suit].at(-1) ?? null
-                  const isEmpty = topCard === null
+                  const topCard = displayState.foundations[suit].at(-1) ?? null
 
                   return (
                     <CardWell
                       key={zoneId}
                       zoneId={zoneId}
-                      highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
                       emptyLabel={<span className={joinClassNames('text-3xl', getSuitTextClass(suit))}>{suitMarks[suit]}</span>}
                       testId={`foundation-${suit}`}
                     >
@@ -346,7 +444,7 @@ function App({ initialState }: { initialState?: FreeCellState }) {
             </div>
 
             <div className="mt-4 flex items-start justify-center gap-3">
-              {gameState.cascades.map((cascade, cascadeIndex) => {
+              {displayState.cascades.map((cascade, cascadeIndex) => {
                 const zoneId = getZoneId({ kind: 'cascade', index: cascadeIndex })
                 const columnHeight = cardFrameHeight + Math.max(cascade.length - 1, 3) * cascadeCardOffset
 
@@ -355,21 +453,11 @@ function App({ initialState }: { initialState?: FreeCellState }) {
                     key={zoneId}
                     data-drop-zone={zoneId}
                     data-testid={`cascade-${cascadeIndex}`}
-                    className={joinClassNames(
-                      slotWidthClass,
-                      'relative shrink-0',
-                      legalDropZoneIds.has(zoneId) && 'outline-2 outline-yellow-200 outline-offset-2 outline',
-                    )}
+                    className={joinClassNames(slotWidthClass, 'relative shrink-0')}
                     style={{ height: `${columnHeight}px` }}
                   >
                     {cascade.length === 0 ? (
-                      <div
-                        className={joinClassNames(
-                          'absolute inset-0 border border-dashed border-emerald-100/40',
-                          legalDropZoneIds.has(zoneId) && 'border-yellow-100',
-                        )}
-                        style={{ height: `${cardFrameHeight}px` }}
-                      ></div>
+                      <div className="absolute inset-0 border border-dashed border-emerald-100/40" style={{ height: `${cardFrameHeight}px` }}></div>
                     ) : null}
 
                     {cascade.map((card, cardIndex) => {
@@ -422,6 +510,23 @@ function App({ initialState }: { initialState?: FreeCellState }) {
           ))}
         </div>
       )}
+
+      {isNewGameModalOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 px-4">
+          <div role="dialog" aria-modal="true" className="w-full max-w-sm border border-slate-300 bg-white p-5 text-slate-900 shadow-xl">
+            <h2 className="text-lg font-semibold tracking-tight">Start a new game?</h2>
+            <p className="mt-2 text-sm text-slate-600">Your current deal will be replaced.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={handleCancelNewGame} className="border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+                Cancel
+              </button>
+              <button type="button" onClick={handleConfirmNewGame} className="bg-emerald-700 px-3 py-1.5 text-sm text-white hover:bg-emerald-800">
+                New Game
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
