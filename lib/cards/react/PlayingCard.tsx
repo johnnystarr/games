@@ -1,6 +1,5 @@
 import type { CSSProperties, PointerEventHandler } from 'react'
 import { getCardAssetPath, getCardBackAssetPath } from '../assets'
-import { getCardColor } from '../deck'
 import type { PlayingCardModel } from '../types'
 
 function joinClassNames(...classNames: Array<string | false | null | undefined>) {
@@ -28,12 +27,10 @@ export function PlayingCard({
   interactive = false,
   faceUp = card.faceUp,
 }: PlayingCardProps) {
-  const cardColor = getCardColor(card.suit)
-
   return (
     <div
       className={joinClassNames(
-        'relative aspect-[179/250] w-full select-none overflow-hidden border border-black/20 bg-white',
+        'relative aspect-[179/250] w-full select-none overflow-hidden rounded-[0.55rem] bg-white shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.95)]',
         ghosted && 'opacity-0',
         interactive && 'cursor-grab active:cursor-grabbing',
         className,
@@ -51,11 +48,6 @@ export function PlayingCard({
         draggable={false}
       />
       {faceUp ? null : <div className="pointer-events-none absolute inset-0 border border-white/10" />}
-      {faceUp ? (
-        <span className={joinClassNames('sr-only', cardColor === 'red' && 'text-red-700')}>
-          {card.rank} of {card.suit}
-        </span>
-      ) : null}
     </div>
   )
 }

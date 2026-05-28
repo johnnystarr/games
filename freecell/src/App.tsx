@@ -23,6 +23,7 @@ import {
 const cascadeCardOffset = 28
 const cardFrameHeight = 156
 const slotWidthClass = 'w-24 sm:w-28'
+const cardShapeClass = 'aspect-[179/250] rounded-[0.55rem]'
 
 const suitMarks: Record<CardSuit, string> = {
   clubs: '♣',
@@ -84,26 +85,32 @@ function CardWell({
   emptyLabel?: React.ReactNode
   testId?: string
 }) {
+  const hasCard = children !== undefined && children !== null
+
   return (
     <div
       data-drop-zone={zoneId}
       data-testid={testId}
       className={joinClassNames(
         slotWidthClass,
-        'relative border border-emerald-200/60 bg-emerald-900/20 p-1',
-        highlighted && 'border-yellow-200 bg-emerald-100/15',
+        'relative shrink-0',
+        highlighted && 'outline-2 outline-yellow-200 outline-offset-2 outline',
         className,
       )}
-      style={{ minHeight: `${cardFrameHeight + 8}px` }}
     >
-      <div
-        className={joinClassNames(
-          'flex h-full min-h-[156px] items-center justify-center border border-dashed border-emerald-100/40 px-2 text-center text-xs font-medium uppercase tracking-wide text-emerald-50/70',
-          highlighted && 'border-yellow-100 text-yellow-50',
-        )}
-      >
-        {children ?? emptyLabel}
-      </div>
+      {hasCard ? (
+        children
+      ) : (
+        <div
+          className={joinClassNames(
+            cardShapeClass,
+            'flex w-full items-center justify-center border border-dashed border-emerald-100/40 px-2 text-center text-xs font-medium uppercase tracking-wide text-emerald-50/60',
+            highlighted && 'border-yellow-100 text-yellow-50',
+          )}
+        >
+          {emptyLabel}
+        </div>
+      )}
     </div>
   )
 }
@@ -255,12 +262,13 @@ function App({ initialState }: { initialState?: FreeCellState }) {
             <div className="flex items-start gap-3">
               {gameState.cells.map((card, cellIndex) => {
                 const zoneId = getZoneId({ kind: 'cell', index: cellIndex })
+                const isEmpty = card === null
 
                 return (
                   <CardWell
                     key={zoneId}
                     zoneId={zoneId}
-                    highlighted={legalDropZoneIds.has(zoneId)}
+                    highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
                     emptyLabel={`Cell ${cellIndex + 1}`}
                     testId={`cell-${cellIndex}`}
                   >
@@ -283,12 +291,13 @@ function App({ initialState }: { initialState?: FreeCellState }) {
               {foundationOrder.map((suit) => {
                 const zoneId = getZoneId({ kind: 'foundation', suit })
                 const topCard = gameState.foundations[suit].at(-1) ?? null
+                const isEmpty = topCard === null
 
                 return (
                   <CardWell
                     key={zoneId}
                     zoneId={zoneId}
-                    highlighted={legalDropZoneIds.has(zoneId)}
+                    highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
                     emptyLabel={<span className={joinClassNames('text-3xl', getSuitTextClass(suit))}>{suitMarks[suit]}</span>}
                     testId={`foundation-${suit}`}
                   >
@@ -310,18 +319,20 @@ function App({ initialState }: { initialState?: FreeCellState }) {
                     data-testid={`cascade-${cascadeIndex}`}
                     className={joinClassNames(
                       slotWidthClass,
-                      'relative border border-emerald-200/60 bg-emerald-900/20 p-1',
-                      legalDropZoneIds.has(zoneId) && 'border-yellow-200 bg-emerald-100/15',
+                      'relative shrink-0',
+                      legalDropZoneIds.has(zoneId) && 'outline-2 outline-yellow-200 outline-offset-2 outline',
                     )}
-                    style={{ height: `${columnHeight + 8}px` }}
+                    style={{ height: `${columnHeight}px` }}
                   >
-                    <div
-                      className={joinClassNames(
-                        'absolute inset-1 top-1 border border-dashed border-emerald-100/40',
-                        legalDropZoneIds.has(zoneId) && 'border-yellow-100',
-                      )}
-                      style={{ height: `${cardFrameHeight}px` }}
-                    ></div>
+                    {cascade.length === 0 ? (
+                      <div
+                        className={joinClassNames(
+                          'absolute inset-0 border border-dashed border-emerald-100/40',
+                          legalDropZoneIds.has(zoneId) && 'border-yellow-100',
+                        )}
+                        style={{ height: `${cardFrameHeight}px` }}
+                      ></div>
+                    ) : null}
 
                     {cascade.map((card, cardIndex) => {
                       const source: FreeCellSource = {
@@ -336,8 +347,8 @@ function App({ initialState }: { initialState?: FreeCellState }) {
                         <div
                           key={card.id}
                           data-testid={`cascade-card-${cascadeIndex}-${cardIndex}`}
-                          className="absolute inset-x-1"
-                          style={{ top: `${4 + cardIndex * cascadeCardOffset}px`, zIndex: cardIndex + 1 }}
+                          className="absolute inset-x-0"
+                          style={{ top: `${cardIndex * cascadeCardOffset}px`, zIndex: cardIndex + 1 }}
                         >
                           <PlayingCard
                             card={card}
