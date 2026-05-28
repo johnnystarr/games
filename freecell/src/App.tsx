@@ -6,7 +6,7 @@ import {
   type CardSuit,
   type PlayingCardModel,
 } from '@cards'
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import kingAsset from './assets/King.svg'
 import {
   applyMove,
@@ -130,15 +130,32 @@ interface DealStep {
   card: PlayingCardModel
 }
 
+interface InitialGameSetup {
+  gameState: FreeCellState
+  displayState: FreeCellState
+  shouldAnimateInitialDeal: boolean
+}
+
+function createInitialGameSetup(initialState: FreeCellState | undefined, disableDealAnimation: boolean): InitialGameSetup {
+  const gameState = initialState ?? createInitialFreeCellState()
+  const shouldAnimateInitialDeal = initialState === undefined && !disableDealAnimation
+
+  return {
+    gameState,
+    displayState: shouldAnimateInitialDeal ? createEmptyFreeCellState() : cloneFreeCellState(gameState),
+    shouldAnimateInitialDeal,
+  }
+}
+
 function buildDealSteps(state: FreeCellState): DealStep[] {
   const steps: DealStep[] = []
 
   for (let cascadeIndex = 0; cascadeIndex < state.cascades.length; cascadeIndex += 1) {
     for (const card of state.cascades[cascadeIndex]) {
-        steps.push({
-          cascadeIndex,
-          card,
-        })
+      steps.push({
+        cascadeIndex,
+        card,
+      })
     }
   }
 
@@ -146,15 +163,12 @@ function buildDealSteps(state: FreeCellState): DealStep[] {
 }
 
 function App({ initialState, disableDealAnimation = false }: AppProps) {
-  const initialGameStateRef = useRef<FreeCellState>(initialState ?? createInitialFreeCellState())
-  const shouldAnimateInitialDeal = initialState === undefined && !disableDealAnimation
-  const [gameState, setGameState] = useState<FreeCellState>(initialGameStateRef.current)
-  const [displayState, setDisplayState] = useState<FreeCellState>(() =>
-    shouldAnimateInitialDeal ? createEmptyFreeCellState() : cloneFreeCellState(initialGameStateRef.current),
-  )
+  const [initialGameSetup] = useState(() => createInitialGameSetup(initialState, disableDealAnimation))
+  const [gameState, setGameState] = useState<FreeCellState>(initialGameSetup.gameState)
+  const [displayState, setDisplayState] = useState<FreeCellState>(initialGameSetup.displayState)
   const [undoStack, setUndoStack] = useState<FreeCellState[]>([])
   const [kingMirrored, setKingMirrored] = useState(false)
-  const [isDealAnimating, setIsDealAnimating] = useState(shouldAnimateInitialDeal)
+  const [isDealAnimating, setIsDealAnimating] = useState(initialGameSetup.shouldAnimateInitialDeal)
   const [isNewGameModalOpen, setIsNewGameModalOpen] = useState(false)
   const [dealCardPhaseById, setDealCardPhaseById] = useState<Record<string, 'pending' | 'settling'>>({})
   const { dragState, startDrag, cancelDrag } = usePointerDrag<DragItem>()
@@ -167,7 +181,7 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
     [dragState],
   )
 
-  const clearDealTimer = () => {
+  const clearDealTimer = useCallback(() => {
     for (const timerId of dealTimerIdsRef.current) {
       window.clearTimeout(timerId)
     }
@@ -178,30 +192,18 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
 
     dealTimerIdsRef.current = []
     dealFrameIdsRef.current = []
-  }
+  }, [])
 
   const won = !isDealAnimating && isGameWon(gameState)
 
-  const startDealAnimation = (nextState: FreeCellState, options?: { resetUndo?: boolean }) => {
+  const queueDealAnimationSteps = useCallback((nextState: FreeCellState) => {
     clearDealTimer()
-    cancelDrag()
 
-    if (options?.resetUndo) {
-      setUndoStack([])
-    }
-
-    setGameState(nextState)
-
-    if (disableDealAnimation) {
+    const finishDeal = () => {
       setDisplayState(cloneFreeCellState(nextState))
       setDealCardPhaseById({})
       setIsDealAnimating(false)
-      return
     }
-
-    setDisplayState(createEmptyFreeCellState())
-    setDealCardPhaseById({})
-    setIsDealAnimating(true)
 
     const dealSteps = buildDealSteps(nextState)
     let stepIndex = 0
@@ -242,40 +244,49 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
       }
 
       dealTimerIdsRef.current.push(window.setTimeout(() => {
-        setDisplayState(cloneFreeCellState(nextState))
-        setDealCardPhaseById({})
-        setIsDealAnimating(false)
+        finishDeal()
         clearDealTimer()
       }, dealFlightDurationMs))
     }
 
     if (dealSteps.length === 0) {
+      dealTimerIdsRef.current.push(window.setTimeout(finishDeal, 0))
+      return
+    }
+
+    dealTimerIdsRef.current.push(window.setTimeout(runStep, 0))
+  }, [clearDealTimer])
+
+  const startDealAnimation = useCallback((nextState: FreeCellState, options?: { resetUndo?: boolean }) => {
+    clearDealTimer()
+    cancelDrag()
+
+    if (options?.resetUndo) {
+      setUndoStack([])
+    }
+
+    setGameState(nextState)
+
+    if (disableDealAnimation) {
       setDisplayState(cloneFreeCellState(nextState))
       setDealCardPhaseById({})
       setIsDealAnimating(false)
       return
     }
 
-    runStep()
-  }
+    setDisplayState(createEmptyFreeCellState())
+    setDealCardPhaseById({})
+    setIsDealAnimating(true)
+    queueDealAnimationSteps(nextState)
+  }, [cancelDrag, clearDealTimer, disableDealAnimation, queueDealAnimationSteps])
 
   useEffect(() => {
-    if (!shouldAnimateInitialDeal) {
-      return undefined
+    if (initialGameSetup.shouldAnimateInitialDeal) {
+      queueDealAnimationSteps(initialGameSetup.gameState)
     }
 
-    startDealAnimation(initialGameStateRef.current)
-
-    return () => {
-      clearDealTimer()
-    }
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      clearDealTimer()
-    }
-  }, [])
+    return clearDealTimer
+  }, [clearDealTimer, initialGameSetup.gameState, initialGameSetup.shouldAnimateInitialDeal, queueDealAnimationSteps])
 
   const pushNextState = (nextState: FreeCellState | null) => {
     if (nextState === null) {

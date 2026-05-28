@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { DragPoint, DragSize, PointerDragState } from '../types'
 
 interface StartDragOptions<TItem> {
@@ -73,7 +73,7 @@ export function usePointerDrag<TItem>() {
     }
   }, [dragState])
 
-  const startDrag = (event: ReactPointerEvent<HTMLElement>, options: StartDragOptions<TItem>) => {
+  const startDrag = useCallback((event: ReactPointerEvent<HTMLElement>, options: StartDragOptions<TItem>) => {
     event.preventDefault()
 
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -89,9 +89,9 @@ export function usePointerDrag<TItem>() {
       pointer,
       size: options.size,
     })
-  }
+  }, [])
 
-  const cancelDrag = () => {
+  const cancelDrag = useCallback(() => {
     const current = dragStateRef.current
 
     if (current !== null) {
@@ -102,7 +102,7 @@ export function usePointerDrag<TItem>() {
     onCancelRef.current = null
     dragStateRef.current = null
     setDragState(null)
-  }
+  }, [])
 
   return {
     dragState,
