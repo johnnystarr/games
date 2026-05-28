@@ -26,7 +26,8 @@ const cascadeCardOffset = 28
 const cardFrameHeight = 156
 const slotWidthClass = 'w-24 sm:w-28'
 const cardShapeClass = 'aspect-[179/250] rounded-[0.55rem]'
-const dealStepDelayMs = 22
+const dealStepDelayMs = 34
+const dealFlightDurationMs = 180
 
 const suitMarks: Record<CardSuit, string> = {
   clubs: '♣',
@@ -130,19 +131,14 @@ interface DealStep {
 }
 
 function buildDealSteps(state: FreeCellState): DealStep[] {
-  const longestCascade = Math.max(...state.cascades.map((cascade) => cascade.length))
   const steps: DealStep[] = []
 
-  for (let rowIndex = 0; rowIndex < longestCascade; rowIndex += 1) {
-    for (let cascadeIndex = 0; cascadeIndex < state.cascades.length; cascadeIndex += 1) {
-      const card = state.cascades[cascadeIndex][rowIndex]
-
-      if (card !== undefined) {
+  for (let cascadeIndex = 0; cascadeIndex < state.cascades.length; cascadeIndex += 1) {
+    for (const card of state.cascades[cascadeIndex]) {
         steps.push({
           cascadeIndex,
           card,
         })
-      }
     }
   }
 
@@ -160,9 +156,11 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
   const [kingMirrored, setKingMirrored] = useState(false)
   const [isDealAnimating, setIsDealAnimating] = useState(shouldAnimateInitialDeal)
   const [isNewGameModalOpen, setIsNewGameModalOpen] = useState(false)
+  const [dealCardPhaseById, setDealCardPhaseById] = useState<Record<string, 'pending' | 'settling'>>({})
   const { dragState, startDrag, cancelDrag } = usePointerDrag<DragItem>()
   const kingRef = useRef<HTMLImageElement | null>(null)
-  const dealTimeoutRef = useRef<number | null>(null)
+  const dealTimerIdsRef = useRef<number[]>([])
+  const dealFrameIdsRef = useRef<number[]>([])
 
   const hiddenCardIds = useMemo(
     () => new Set((dragState?.item.cards ?? []).map((card) => card.id)),
@@ -170,10 +168,16 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
   )
 
   const clearDealTimer = () => {
-    if (dealTimeoutRef.current !== null) {
-      window.clearTimeout(dealTimeoutRef.current)
-      dealTimeoutRef.current = null
+    for (const timerId of dealTimerIdsRef.current) {
+      window.clearTimeout(timerId)
     }
+
+    for (const frameId of dealFrameIdsRef.current) {
+      window.cancelAnimationFrame(frameId)
+    }
+
+    dealTimerIdsRef.current = []
+    dealFrameIdsRef.current = []
   }
 
   const won = !isDealAnimating && isGameWon(gameState)
@@ -190,11 +194,13 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
 
     if (disableDealAnimation) {
       setDisplayState(cloneFreeCellState(nextState))
+      setDealCardPhaseById({})
       setIsDealAnimating(false)
       return
     }
 
     setDisplayState(createEmptyFreeCellState())
+    setDealCardPhaseById({})
     setIsDealAnimating(true)
 
     const dealSteps = buildDealSteps(nextState)
@@ -202,29 +208,50 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
 
     const runStep = () => {
       const currentStep = dealSteps[stepIndex]
+      const currentCardId = currentStep.card.id
 
       setDisplayState((current) => {
         const next = cloneFreeCellState(current)
         next.cascades[currentStep.cascadeIndex] = [...next.cascades[currentStep.cascadeIndex], { ...currentStep.card }]
         return next
       })
+      setDealCardPhaseById((current) => ({
+        ...current,
+        [currentCardId]: 'pending',
+      }))
+
+      const frameId = window.requestAnimationFrame(() => {
+        setDealCardPhaseById((current) => {
+          if (current[currentCardId] === undefined) {
+            return current
+          }
+
+          return {
+            ...current,
+            [currentCardId]: 'settling',
+          }
+        })
+      })
+      dealFrameIdsRef.current.push(frameId)
 
       stepIndex += 1
 
       if (stepIndex < dealSteps.length) {
-        dealTimeoutRef.current = window.setTimeout(runStep, dealStepDelayMs)
+        dealTimerIdsRef.current.push(window.setTimeout(runStep, dealStepDelayMs))
         return
       }
 
-      dealTimeoutRef.current = window.setTimeout(() => {
+      dealTimerIdsRef.current.push(window.setTimeout(() => {
         setDisplayState(cloneFreeCellState(nextState))
+        setDealCardPhaseById({})
         setIsDealAnimating(false)
-        dealTimeoutRef.current = null
-      }, dealStepDelayMs)
+        clearDealTimer()
+      }, dealFlightDurationMs))
     }
 
     if (dealSteps.length === 0) {
       setDisplayState(cloneFreeCellState(nextState))
+      setDealCardPhaseById({})
       setIsDealAnimating(false)
       return
     }
@@ -478,6 +505,10 @@ function App({ initialState, disableDealAnimation = false }: AppProps) {
                         >
                           <PlayingCard
                             card={card}
+                            className={joinClassNames(
+                              dealCardPhaseById[card.id] === 'pending' && 'translate-y-[-120vh] opacity-0',
+                              dealCardPhaseById[card.id] === 'settling' && 'translate-y-0 opacity-100 transition-all duration-180 ease-out',
+                            )}
                             interactive={canDrag}
                             ghosted={hiddenCardIds.has(card.id)}
                             onPointerDown={canDrag ? (event) => handleStartDrag(event, source) : undefined}
