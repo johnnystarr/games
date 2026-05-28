@@ -44,10 +44,14 @@ export function PlayingCard({
       <img
         src={faceUp ? getCardAssetPath(card) : getCardBackAssetPath()}
         alt={faceUp ? `${card.rank} of ${card.suit}` : 'Card back'}
-        className="block h-full w-full object-contain"
+        className="block h-full w-full rounded-[0.55rem] object-contain"
         draggable={false}
       />
-      {faceUp ? null : <div className="pointer-events-none absolute inset-0 border border-white/10" />}
+      <div
+        className="pointer-events-none absolute inset-0 rounded-[0.55rem]"
+        style={{ boxShadow: 'inset 0 0 0 0.75px rgba(0, 0, 0, 0.96)' }}
+      ></div>
+      {faceUp ? null : <div className="pointer-events-none absolute inset-0 rounded-[0.55rem] border border-white/10" />}
     </div>
   )
 }

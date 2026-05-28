@@ -6,7 +6,8 @@ import {
   type CardSuit,
   type PlayingCardModel,
 } from '@cards'
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import kingAsset from '../../King.svg'
 import {
   applyMove,
   createInitialFreeCellState,
@@ -123,7 +124,9 @@ interface DragItem {
 function App({ initialState }: { initialState?: FreeCellState }) {
   const [gameState, setGameState] = useState<FreeCellState>(() => initialState ?? createInitialFreeCellState())
   const [undoStack, setUndoStack] = useState<FreeCellState[]>([])
+  const [kingMirrored, setKingMirrored] = useState(false)
   const { dragState, startDrag, cancelDrag } = usePointerDrag<DragItem>()
+  const kingRef = useRef<HTMLImageElement | null>(null)
 
   const hiddenCardIds = useMemo(
     () => new Set((dragState?.item.cards ?? []).map((card) => card.id)),
@@ -233,8 +236,29 @@ function App({ initialState }: { initialState?: FreeCellState }) {
     })
   }
 
+  const handleBoardPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const kingElement = kingRef.current
+
+    if (kingElement === null) {
+      return
+    }
+
+    const kingBounds = kingElement.getBoundingClientRect()
+    const shouldMirror = event.clientX < kingBounds.left + kingBounds.width / 2
+
+    setKingMirrored((current) => (current === shouldMirror ? current : shouldMirror))
+  }
+
+  const resetKingDirection = () => {
+    setKingMirrored(false)
+  }
+
   return (
-    <main className="min-h-screen bg-emerald-700 px-4 py-5 text-white sm:px-6">
+    <main
+      className="min-h-screen bg-emerald-700 px-4 py-5 text-white sm:px-6"
+      onPointerMove={handleBoardPointerMove}
+      onPointerLeave={resetKingDirection}
+    >
       <div className="mx-auto max-w-7xl">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-emerald-100/30 pb-3">
           <div>
@@ -258,56 +282,70 @@ function App({ initialState }: { initialState?: FreeCellState }) {
         </header>
 
         <section className="overflow-x-auto pb-4">
-          <div className="min-w-max">
-            <div className="flex items-start gap-3">
-              {gameState.cells.map((card, cellIndex) => {
-                const zoneId = getZoneId({ kind: 'cell', index: cellIndex })
-                const isEmpty = card === null
+          <div className="mx-auto w-fit min-w-max">
+            <div className="flex items-start justify-center gap-3">
+              <div className="flex items-start gap-3">
+                {gameState.cells.map((card, cellIndex) => {
+                  const zoneId = getZoneId({ kind: 'cell', index: cellIndex })
+                  const isEmpty = card === null
 
-                return (
-                  <CardWell
-                    key={zoneId}
-                    zoneId={zoneId}
-                    highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
-                    emptyLabel={`Cell ${cellIndex + 1}`}
-                    testId={`cell-${cellIndex}`}
-                  >
-                    {card === null ? null : (
-                      <div data-testid={`cell-card-${cellIndex}`}>
-                        <PlayingCard
-                          card={card}
-                          interactive
-                          onPointerDown={(event) => handleStartDrag(event, { kind: 'cell', index: cellIndex })}
-                          onDoubleClick={() => handleAutoFoundation({ kind: 'cell', index: cellIndex })}
-                        />
-                      </div>
-                    )}
-                  </CardWell>
-                )
-              })}
+                  return (
+                    <CardWell
+                      key={zoneId}
+                      zoneId={zoneId}
+                      highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
+                      emptyLabel={`Cell ${cellIndex + 1}`}
+                      testId={`cell-${cellIndex}`}
+                    >
+                      {card === null ? null : (
+                        <div data-testid={`cell-card-${cellIndex}`}>
+                          <PlayingCard
+                            card={card}
+                            interactive
+                            onPointerDown={(event) => handleStartDrag(event, { kind: 'cell', index: cellIndex })}
+                            onDoubleClick={() => handleAutoFoundation({ kind: 'cell', index: cellIndex })}
+                          />
+                        </div>
+                      )}
+                    </CardWell>
+                  )
+                })}
+              </div>
 
-              <div className="w-6 sm:w-10"></div>
+              <div className="flex min-h-[156px] w-20 shrink-0 items-center justify-center sm:w-24">
+                <img
+                  ref={kingRef}
+                  src={kingAsset}
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-16 w-auto select-none transition-transform duration-100"
+                  style={{ transform: kingMirrored ? 'scaleX(-1)' : 'scaleX(1)' }}
+                  draggable={false}
+                />
+              </div>
 
-              {foundationOrder.map((suit) => {
-                const zoneId = getZoneId({ kind: 'foundation', suit })
-                const topCard = gameState.foundations[suit].at(-1) ?? null
-                const isEmpty = topCard === null
+              <div className="flex items-start gap-3">
+                {foundationOrder.map((suit) => {
+                  const zoneId = getZoneId({ kind: 'foundation', suit })
+                  const topCard = gameState.foundations[suit].at(-1) ?? null
+                  const isEmpty = topCard === null
 
-                return (
-                  <CardWell
-                    key={zoneId}
-                    zoneId={zoneId}
-                    highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
-                    emptyLabel={<span className={joinClassNames('text-3xl', getSuitTextClass(suit))}>{suitMarks[suit]}</span>}
-                    testId={`foundation-${suit}`}
-                  >
-                    {topCard === null ? null : <PlayingCard card={topCard} />}
-                  </CardWell>
-                )
-              })}
+                  return (
+                    <CardWell
+                      key={zoneId}
+                      zoneId={zoneId}
+                      highlighted={isEmpty && legalDropZoneIds.has(zoneId)}
+                      emptyLabel={<span className={joinClassNames('text-3xl', getSuitTextClass(suit))}>{suitMarks[suit]}</span>}
+                      testId={`foundation-${suit}`}
+                    >
+                      {topCard === null ? null : <PlayingCard card={topCard} />}
+                    </CardWell>
+                  )
+                })}
+              </div>
             </div>
 
-            <div className="mt-5 flex items-start gap-3">
+            <div className="mt-4 flex items-start justify-center gap-3">
               {gameState.cascades.map((cascade, cascadeIndex) => {
                 const zoneId = getZoneId({ kind: 'cascade', index: cascadeIndex })
                 const columnHeight = cardFrameHeight + Math.max(cascade.length - 1, 3) * cascadeCardOffset
