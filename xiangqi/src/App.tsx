@@ -29,7 +29,7 @@ function App() {
   const animatorRef = useRef<MoveAnimator | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  if (!animatorRef.current) {
+  if (animatorRef.current == null) {
     animatorRef.current = new MoveAnimator(setAnimation)
   }
 
