@@ -30,7 +30,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: xiangqi
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build Xiangqi
         working-directory: xiangqi
