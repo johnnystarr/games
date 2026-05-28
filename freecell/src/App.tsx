@@ -7,7 +7,7 @@ import {
   type PlayingCardModel,
 } from '@cards'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import kingAsset from '../../King.svg'
+import kingAsset from './assets/King.svg'
 import {
   applyMove,
   cloneFreeCellState,
