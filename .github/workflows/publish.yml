@@ -26,7 +26,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: xiangqi/package-lock.json
+          cache-dependency-path: |
+            xiangqi/package-lock.json
+            freecell/package-lock.json
 
       - name: Install dependencies
         working-directory: xiangqi
@@ -34,6 +36,14 @@ jobs:
 
       - name: Build Xiangqi
         working-directory: xiangqi
+        run: npm run build
+
+      - name: Install FreeCell dependencies
+        working-directory: freecell
+        run: npm install --no-audit --no-fund
+
+      - name: Build FreeCell
+        working-directory: freecell
         run: npm run build
 
       - name: Set up Docker Buildx

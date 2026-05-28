@@ -24,7 +24,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: xiangqi/package-lock.json
+          cache-dependency-path: |
+            xiangqi/package-lock.json
+            freecell/package-lock.json
 
       - name: Install dependencies
         working-directory: xiangqi
@@ -40,6 +42,22 @@ jobs:
 
       - name: Build Xiangqi
         working-directory: xiangqi
+        run: npm run build
+
+      - name: Install FreeCell dependencies
+        working-directory: freecell
+        run: npm install --no-audit --no-fund
+
+      - name: Lint FreeCell
+        working-directory: freecell
+        run: npm run lint
+
+      - name: Test FreeCell
+        working-directory: freecell
+        run: npm run test
+
+      - name: Build FreeCell
+        working-directory: freecell
         run: npm run build
 
   build:
@@ -58,7 +76,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: xiangqi/package-lock.json
+          cache-dependency-path: |
+            xiangqi/package-lock.json
+            freecell/package-lock.json
 
       - name: Install dependencies
         working-directory: xiangqi
@@ -66,6 +86,14 @@ jobs:
 
       - name: Build Xiangqi
         working-directory: xiangqi
+        run: npm run build
+
+      - name: Install FreeCell dependencies
+        working-directory: freecell
+        run: npm install --no-audit --no-fund
+
+      - name: Build FreeCell
+        working-directory: freecell
         run: npm run build
 
       - name: Set up Docker Buildx
@@ -91,7 +119,8 @@ jobs:
           echo "Waiting for container to start..."
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:3000/ > /dev/null 2>&1 && \
-              curl -fsS http://127.0.0.1:3000/xiangqi > /dev/null 2>&1; then
+              curl -fsS http://127.0.0.1:3000/xiangqi > /dev/null 2>&1 && \
+              curl -fsS http://127.0.0.1:3000/freecell > /dev/null 2>&1; then
               echo "Static routes are healthy"
               break
             fi
